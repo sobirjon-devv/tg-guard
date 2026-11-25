@@ -1,0 +1,5 @@
+aiogram>=3.20,<4
+aiohttp>=3.9
+aiosqlite>=0.20
+tldextract>=5.1
+playwright>=1.48
