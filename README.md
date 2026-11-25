@@ -47,3 +47,8 @@ python -m guard.main
 Railway: repo'ni ulang, `BOT_TOKEN` (va kalitlarni) Variables'ga qo'shing, `/data` ga Volume ulang.
 
 Testlar: `python -m pytest -q`
+
+## Maxfiylik
+Siyosat: `guard/privacy.py` (bot ichida `/privacy`, veb: `/privacy` sahifasi). Foydalanuvchi `/deletemydata`
+orqali o'z ma'lumotlarini o'chiradi; xavf hodisalari 90 kundan keyin avtomatik o'chiriladi.
+Kod xatti-harakati o'zgarsa, siyosatni ham yangilang.

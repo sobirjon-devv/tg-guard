@@ -254,3 +254,10 @@ def recent_context(m) -> str:
     if prev and time.time() - prev[0] < 180 and prev[1] != txt:
         return prev[1]
     return ""
+
+
+def purge_recent():
+    import time
+    now = time.time()
+    for k in [k for k, (ts, _) in _recent.items() if now - ts > 180]:
+        _recent.pop(k, None)

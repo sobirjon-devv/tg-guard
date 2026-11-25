@@ -8,6 +8,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from .. import db
 from ..branding import asset
+from ..privacy import telegram_parts
+from ..config import PRIVACY_URL
 from ..actions import best_screenshot, report_text, send_report
 from ..config import config
 from ..scanner.engine import scan_message, scan_url_text
@@ -42,6 +44,7 @@ def start_kb(username: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="➕ Kanalga qo'shish",
                               url=f"https://t.me/{username}?startchannel=guard&admin=delete_messages+post_messages")],
         [InlineKeyboardButton(text="📱 Shaxsiy chatlarni himoyalash", callback_data="howto_business")],
+        [InlineKeyboardButton(text="🔒 Maxfiylik siyosati", url=PRIVACY_URL)],
     ])
 
 
@@ -81,6 +84,34 @@ async def help_(m: Message, bot: Bot):
     await m.answer(BUSINESS_HOWTO.format(username=me.username) +
                    "\n\n👥 <b>Guruh uchun:</b> botni guruhga qo'shing va admin qiling "
                    "(«Xabarlarni o'chirish», «Foydalanuvchilarni cheklash»). Sozlash: guruhda /sozlamalar")
+
+
+@router.message(Command("privacy", "maxfiylik"))
+async def privacy_cmd(m: Message):
+    for part in telegram_parts():
+        await m.answer(part, disable_web_page_preview=True)
+    await m.answer(f"🌐 Veb-versiya: {PRIVACY_URL}\nMa'lumotlaringizni o'chirish: /deletemydata",
+                   disable_web_page_preview=True)
+
+
+@router.message(Command("deletemydata"))
+async def delete_my_data(m: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🗑 Ha, o'chirilsin", callback_data="delme:yes"),
+        InlineKeyboardButton(text="Bekor qilish", callback_data="delme:no")]])
+    await m.answer("Sizga tegishli barcha ma'lumotlar o'chiriladi: profil, siz yuborgan xabarlar bo'yicha "
+                   "hodisalar, shaxsiy chat (Business) sozlamalari va statistikasi. Davom etasizmi?", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("delme:"))
+async def delete_my_data_cb(c):
+    if c.data == "delme:yes":
+        n = await db.delete_user_data(c.from_user.id)
+        await c.message.edit_text(f"✅ Ma'lumotlaringiz o'chirildi ({n} ta yozuv). "
+                                  "Botdan qayta foydalansangiz, faqat yangi ma'lumotlar yoziladi.")
+    else:
+        await c.message.edit_text("Bekor qilindi.")
+    await c.answer()
 
 
 @router.message(Command("check", "tekshir"))

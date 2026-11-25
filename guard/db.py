@@ -184,3 +184,21 @@ async def get_business(conn_id: str):
     async with _db.execute("SELECT user_id, user_chat_id, can_delete, enabled FROM business WHERE conn_id=?",
                            (conn_id,)) as c:
         return await c.fetchone()
+
+
+async def purge_old_events(days: int) -> int:
+    cur = await _db.execute("DELETE FROM events WHERE ts < strftime('%s','now') - ?", (days * 86400,))
+    await _db.commit()
+    return cur.rowcount
+
+
+async def delete_user_data(user_id: int) -> int:
+    """Foydalanuvchiga tegishli barcha yozuvlarni o'chiradi (/deletemydata)."""
+    n = 0
+    for q in ("DELETE FROM events WHERE user_id=?", "DELETE FROM events WHERE chat_id=?",
+              "DELETE FROM users WHERE user_id=?", "DELETE FROM business WHERE user_id=?",
+              "DELETE FROM settings WHERE chat_id=?", "DELETE FROM stats WHERE chat_id=?"):
+        cur = await _db.execute(q, (user_id,))
+        n += max(cur.rowcount, 0)
+    await _db.commit()
+    return n

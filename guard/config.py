@@ -30,3 +30,5 @@ class Config:
 
 
 config = Config()
+
+PRIVACY_URL = os.getenv("PRIVACY_URL", "https://tg-guard-bot-production-a5fecc5c.up.railway.app/privacy")

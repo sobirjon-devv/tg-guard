@@ -183,6 +183,13 @@ async def cb_settings(c: CallbackQuery, bot: Bot):
     await c.answer("Saqlandi")
 
 
+@router.message(Command("privacy", "maxfiylik"), F.chat.type.in_(GROUPS))
+async def cmd_privacy(m: Message):
+    from ..config import PRIVACY_URL
+    await m.reply(f"🔒 Maxfiylik siyosati: {PRIVACY_URL}\nQisqacha: oddiy xabarlar saqlanmaydi; faqat xavfli "
+                  "deb topilgan havola/fayl haqidagi yozuv 90 kun saqlanadi.", disable_web_page_preview=True)
+
+
 @router.message(Command("holat", "stats"), F.chat.type.in_(GROUPS))
 async def cmd_stats(m: Message):
     scanned, deleted = await db.get_stats(m.chat.id)
