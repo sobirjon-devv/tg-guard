@@ -47,9 +47,15 @@ def _host_matches(host: str, domains) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
+# Bot egasi admin paneldan qo'shgan ishonchli saytlar (/trust)
+EXTRA_TRUSTED: set[str] = set()
+
+
 def is_trusted(url: str) -> bool:
     p = urlsplit(url)
     host = (p.hostname or "").lower()
+    if EXTRA_TRUSTED and _host_matches(host, EXTRA_TRUSTED):
+        return True
     if not _host_matches(host, SAFE_DOMAINS):
         return False
     hp = host + p.path
@@ -77,14 +83,14 @@ def static_check(url: str, context_text: str = "", f: Finding | None = None) -> 
     # IP manzil
     try:
         ipaddress.ip_address(host)
-        f.add(35, "havola domen emas, to'g'ridan-to'g'ri IP manzil")
+        f.add(35, "havola domen emas, to'g'ridan-to'g'ri IP manzil", strong=True)
     except ValueError:
         pass
 
     # Punycode / kirill harflar bilan niqoblangan domen
     uhost = _unicode_host(host)
     if "xn--" in host or not uhost.isascii():
-        f.add(30, f"domen o'xshash harflar bilan niqoblangan ({uhost})")
+        f.add(30, f"domen o'xshash harflar bilan niqoblangan ({uhost})", strong=True)
     skel = uhost.translate(_CONFUSABLE)
 
     # Brendni taqlid qilish (typosquatting)
@@ -103,7 +109,7 @@ def static_check(url: str, context_text: str = "", f: Finding | None = None) -> 
             if hit:
                 break
         if hit:
-            f.add(45, f"domen «{brand}» nomini taqlid qilmoqda, lekin rasmiy sayt emas")
+            f.add(45, f"domen «{brand}» nomini taqlid qilmoqda, lekin rasmiy sayt emas", strong=True)
             f.tags.add("brand"); f.details["brand"] = brand
             break
 
@@ -117,11 +123,11 @@ def static_check(url: str, context_text: str = "", f: Finding | None = None) -> 
     if suffix in SUSPICIOUS_TLDS or suffix.split(".")[-1] in SUSPICIOUS_TLDS:
         f.add(15, f"fishingda ko'p ishlatiladigan domen zonasi (.{suffix})")
     if _host_matches(host, FREE_HOSTING):
-        f.add(20, "bepul hosting/tunnel xizmatida joylashgan sayt")
+        f.add(8, "bepul hosting/tunnel xizmatida joylashgan sayt (o'z-o'zidan xavf emas)")
     if reg in SHORTENERS or host in SHORTENERS:
         f.add(10, "qisqartirilgan havola (asl manzil yashirilgan)")
     if "@" in (p.netloc or ""):
-        f.add(30, "havolada «@» hiylasi (asl domen yashirilgan)")
+        f.add(30, "havolada «@» hiylasi (asl domen yashirilgan)", strong=True)
     if host.count(".") >= 4:
         f.add(10, "juda ko'p subdomenli manzil")
     if host.count("-") >= 3:
@@ -137,7 +143,7 @@ def static_check(url: str, context_text: str = "", f: Finding | None = None) -> 
     if kw:
         f.add(min(kw, 30), "manzilda fishingga xos so'zlar (login/gift/bonus/ovoz/premium...)")
     if re.search(r"\.(apk|apks|xapk)(\?|$)", p.path, re.I):
-        f.add(45, "havola to'g'ridan-to'g'ri APK faylni yuklatadi")
+        f.add(45, "havola to'g'ridan-to'g'ri APK faylni yuklatadi", strong=True)
         f.tags.add("apk")
 
     # Telegram bot havolalari
@@ -216,8 +222,18 @@ async def fetch_chain(session: aiohttp.ClientSession, url: str, max_hops: int = 
     return chain, cur, None, ""
 
 
-_TG_KIT = re.compile(r"auth\.sendCode|auth\.signIn|auth\.checkPassword|gramjs|telegram(\.min)?\.js|tdweb|"
-                     r"mtproto|api_hash|apiHash|telegram-web-app\.js.{0,200}phone|tgme_page_photo|tgme_action_button", re.I)
+# Faqat MTProto (Telegram mijoz protokoli) ga xos belgilar. Umumiy so'zlar (auth.signIn — Supabase/Firebase,
+# telegram.js — oddiy bot integratsiyasi) bu yerga KIRMAYDI.
+_TG_KIT_MARKERS = {
+    "auth.sendCode": re.compile(r"auth\.sendCode\b"),
+    "auth.checkPassword": re.compile(r"auth\.checkPassword\b"),
+    "auth.exportLoginToken": re.compile(r"auth\.exportLoginToken\b"),
+    "GramJS": re.compile(r"\bgramjs\b|telegram/sessions|StringSession\(", re.I),
+    "TDLib web": re.compile(r"\btdweb\b|td_wasm", re.I),
+    "MTProto": re.compile(r"\bmtproto\b|invokeWithLayer|initConnection", re.I),
+    "api_hash": re.compile(r"\bapi_?hash\b\s*[:=]", re.I),
+}
+_TME_CLONE = re.compile(r"tgme_page_photo|tgme_action_button", re.I)
 _PHONE_INPUT = re.compile(r"type=[\"']tel[\"']|name=[\"'](phone|tel|number)[\"']|\+998|placeholder=[\"'][^\"']*(raqam|номер|phone)", re.I)
 _CODE_INPUT = re.compile(r"kodni kiriting|введите код|enter (the )?code|tasdiqlash kodi|код из (смс|telegram)|login code", re.I)
 _CARD = re.compile(r"\bcvv\b|\bcvc\b|karta raqam|номер карты|card number|amal qilish muddati|срок действия карты", re.I)
@@ -227,34 +243,43 @@ _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 _TAGS = re.compile(r"<script.*?</script>|<style.*?</style>|<[^>]+>", re.I | re.S)
 
 
-def analyze_html(f: Finding, html: str, host: str, skip_forms: bool = False):
+def analyze_html(f: Finding, html: str, host: str, skip_forms: bool = False, asks: set | None = None):
     title = (_TITLE.search(html).group(1).strip() if _TITLE.search(html) else "")[:200]
     visible = re.sub(r"\s+", " ", _TAGS.sub(" ", html))[:20000]
     low_all = (title + " " + visible).lower()
     tg_word = "telegram" in low_all or "телеграм" in low_all
-    if _TG_KIT.search(html) and not _host_matches(host, BRANDS["Telegram"]["domains"]):
-        f.add(55, "sahifada Telegram akkauntiga kirish kodini o'g'irlovchi kod bor (soxta Telegram login)")
-        f.tags.add("tg_steal")
-    if not skip_forms:
-        if tg_word and _PHONE_INPUT.search(html):
-            f.add(40, "sahifa Telegram nomidan telefon raqamingizni so'ramoqda")
+    if not _host_matches(host, BRANDS["Telegram"]["domains"]):
+        found = [name for name, rx in _TG_KIT_MARKERS.items() if rx.search(html)]
+        if len(found) >= 2:
+            f.add(55, "sahifada Telegram akkauntiga kirish (MTProto) kodi bor: " + ", ".join(found[:3]), strong=True)
             f.tags.add("tg_steal")
-        if _CODE_INPUT.search(visible):
-            f.add(25, "sahifa SMS/Telegram tasdiqlash kodini so'ramoqda")
+        elif found:
+            f.add(15, f"sahifada Telegram protokoli belgisi topildi ({found[0]})")
+        if _TME_CLONE.search(html) and tg_word:
+            f.add(30, "sahifa t.me dizaynini nusxalagan (soxta Telegram sahifasi)")
+    if not skip_forms:
+        if tg_word and _PHONE_INPUT.search(html) and _CODE_INPUT.search(visible):
+            f.add(40, "sahifa Telegram nomidan telefon raqam va kodni so'ramoqda")
+            f.tags.add("tg_steal")
         if _CARD.search(visible) or _CARD.search(html[:50000]):
-            f.add(35, "sahifa bank karta ma'lumotlarini (raqam/CVV/muddat) so'ramoqda")
+            f.add(20, "sahifa bank karta ma'lumotlarini (raqam/CVV/muddat) so'ramoqda")
             f.tags.add("card")
     if _APK_LINK.search(html):
         f.add(40, "sahifa telefonga APK ilova o'rnatishga undaydi")
         f.tags.add("apk")
-    brands = mentioned_brands(title + " " + visible[:3000])
-    for b in brands:
-        if b != "Google" and not _host_matches(host, BRANDS[b]["domains"]):
-            f.add(25, f"sahifa «{b}» nomidan ochilgan, lekin domen rasmiy emas")
+    # Brend taqlidi: brend SARLAVHADA bo'lishi va sahifa maxfiy ma'lumot so'rashi kerak.
+    # Matnda shunchaki «Telegram orqali bog'laning» deyilishi taqlid emas.
+    asks_secret = bool(asks & {"telefon raqam", "tasdiqlash kodi", "parol", "karta raqami", "CVV/amal qilish muddati"}) \
+        if asks is not None else bool(_PASS.search(html) or _CARD.search(visible) or _CODE_INPUT.search(visible))
+    for b in mentioned_brands(title):
+        if b == "Google" or _host_matches(host, BRANDS[b]["domains"]):
+            continue
+        if asks_secret:
+            f.add(35, f"sahifa «{b}» nomidan ochilgan va maxfiy ma'lumot so'raydi, lekin domen rasmiy emas", strong=True)
             f.tags.add("brand"); f.details.setdefault("brand", b)
-            if _PASS.search(html):
-                f.add(15, "soxta sahifada parol maydoni bor")
-            break
+        else:
+            f.add(5, f"sahifa sarlavhasida «{b}» nomi bor (rasmiy domen emas)")
+        break
     s, _ = scam_score(title + " " + visible[:3000])
     if s >= 20:
         f.add(min(s, 25), "sahifa matnida firibgarlik belgilari (sovg'a/yutuq/ovoz berish)")
@@ -430,20 +455,30 @@ async def analyze_sandbox(session, f: Finding, rep) -> None:
     d["title"] = rep.title
     if rep.ip:
         d["country"], d["org"] = await geo(session, rep.ip)
-    f.final_url = final if final != f.target else None
+    f.final_url = final if (urlsplit(final).hostname or "") != (urlsplit(f.target).hostname or "") else None
     f.screenshot = rep.screenshot
 
-    # Yo'naltirishlar zanjiri
-    if len(rep.chain) > 1:
-        if len(rep.chain) > 2:
-            f.add(10, f"{len(rep.chain) - 1} marta yo'naltirish (redirect) orqali asl manzil yashirilgan")
+    # Yo'naltirishlar zanjiri — faqat BOSHQA domenga o'tishlar hisoblanadi (http→https, «/» qo'shilishi emas)
+    orig_host = urlsplit(f.target).hostname or ""
+    hops = []
+    for hop in rep.chain[1:]:
+        h = urlsplit(hop).hostname or ""
+        if h and h != orig_host and (not hops or urlsplit(hops[-1]).hostname != h):
+            hops.append(hop)
+    d["chain"] = [f.target] + hops
+    if not hops:
+        f.final_url = None
+    else:
+        if len(hops) >= 2:
+            f.add(10, f"{len(hops)} marta boshqa domenga yo'naltirish orqali asl manzil yashirilgan")
         best = None
-        for hop in rep.chain[1:]:
+        for hop in hops:
             hf = static_check(hop)
             if not hf.trusted and (best is None or hf.score > best.score):
                 best = hf
         if best and best.score:
             f.score += best.score
+            f.strong |= best.strong
             f.tags |= best.tags
             for r in best.reasons:
                 if f"yakuniy manzil: {r}" not in f.reasons:
@@ -457,23 +492,21 @@ async def analyze_sandbox(session, f: Finding, rep) -> None:
     tg_word = "telegram" in low or "телеграм" in low or "premium" in low
     if not official_tg:
         if rep.tg_api_calls:
-            f.add(60, "sahifa fonda haqiqiy Telegram serverlariga ulanmoqda — kiritgan kodingiz bilan "
-                      "akkauntingizga kirib olish uchun")
+            f.add(60, "sahifa fonda Telegram serverlariga (MTProto) ulanmoqda — kiritgan kodingiz bilan "
+                      "akkauntingizga kirib olish uchun", strong=True)
             f.tags.add("tg_steal")
-        if "telefon raqam" in asks and (tg_word or "tasdiqlash kodi" in asks):
-            f.add(45, "sahifa telefon raqamingizni so'ramoqda (Telegram akkauntini o'g'irlash shabloni)")
+        if "telefon raqam" in asks and "tasdiqlash kodi" in asks and tg_word:
+            f.add(45, "sahifa Telegram nomidan telefon raqam va tasdiqlash kodini so'ramoqda")
             f.tags.add("tg_steal")
-        elif "telefon raqam" in asks:
-            f.add(15, "sahifa telefon raqam so'ramoqda")
-        if "tasdiqlash kodi" in asks:
-            f.add(25, "sahifa SMS/Telegram tasdiqlash kodini so'ramoqda")
+        elif "tasdiqlash kodi" in asks and tg_word:
+            f.add(20, "sahifa Telegram nomidan tasdiqlash kodini so'ramoqda")
     bank_host = any(_host_matches(host, b["domains"]) for b in BRANDS.values())
     if not bank_host and ({"karta raqami", "CVV/amal qilish muddati"} & asks):
-        f.add(45 if "CVV/amal qilish muddati" in asks else 30,
+        f.add(30 if "CVV/amal qilish muddati" in asks else 15,
               "sahifa bank karta ma'lumotlarini so'ramoqda (" + ", ".join(sorted(asks & {"karta raqami", "CVV/amal qilish muddati"})) + ")")
         f.tags.add("card")
     if rep.html:
-        analyze_html(f, rep.html, host, skip_forms=True)
+        analyze_html(f, rep.html, host, skip_forms=True, asks=asks)
 
     # Sahifa yuklatgan fayllar — o'rnatilmasdan tahlil qilinadi
     if rep.downloads:
@@ -487,7 +520,7 @@ async def analyze_sandbox(session, f: Finding, rep) -> None:
                     f.reasons.append(key)
                     f.weights[key] = ff.weights.get(r, 5)
             f.tags.add("apk")
-            if ff.hard or ff.score >= config.malicious_threshold:
+            if ff.hard or (ff.strong and ff.score >= config.malicious_threshold):
                 f.mark_hard(f"yuklatilgan fayl ({x['name']}) zararli dastur", tag="apk")
     if rep.error and not rep.ok:
         d["error"] = rep.error
@@ -573,7 +606,7 @@ async def deep_check(session, url: str) -> Finding:
         age = await domain_age_days(session, reg)
         f.details["age_days"] = age
         if age is not None and age < 14:
-            f.add(35, f"domen atigi {age} kun oldin ro'yxatdan o'tgan")
+            f.add(35, f"domen atigi {age} kun oldin ro'yxatdan o'tgan", strong=True)
         elif age is not None and age < 60:
             f.add(15, f"domen yangi ({age} kunlik)")
 
@@ -592,7 +625,7 @@ async def deep_check(session, url: str) -> Finding:
                 age = await domain_age_days(session, freg)
                 f.details["final_age_days"] = age
                 if age is not None and age < 14:
-                    f.add(35, f"yakuniy domen atigi {age} kun oldin ochilgan")
+                    f.add(35, f"yakuniy domen atigi {age} kun oldin ochilgan", strong=True)
 
     _cache[url] = (time.time(), f)
     if len(_cache) > 3000:

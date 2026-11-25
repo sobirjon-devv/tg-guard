@@ -52,7 +52,7 @@ def _apply_context(f: Finding, text_pts: int, text_why: list[str], via_bot: bool
     if f.trusted and not f.hard:
         return
     if text_pts:
-        f.add(text_pts, "xabar matnida firibgarlik belgilari: " + ", ".join(text_why[:3]))
+        f.add(text_pts, "xabar matnida firibgarlik belgilari: " + ", ".join(text_why[:3]), strong=text_pts >= 18)
     if via_bot and is_button:
         f.add(15, "inline-bot/forward orqali tugmali «reklama» ko'rinishida yuborilgan (fishingning asosiy usuli)")
 
@@ -103,6 +103,7 @@ async def scan_message(bot, msg, *, quick_only: bool = False, extra_context: str
             if r not in f.reasons:
                 f.reasons.append(r)
                 f.weights[r] = q.weights.get(r, 5)
+        f.strong |= q.strong
         return f
 
     tasks = [asyncio.create_task(_deep(u)) for u in quick]

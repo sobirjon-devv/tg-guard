@@ -61,11 +61,11 @@ def name_check(name: str, f: Finding):
         kind = "Android ilova (APK)" if ext.startswith(".ap") or ext == ".aab" else "bajariladigan dastur"
         f.add(DANGEROUS_EXTS[ext], f"{kind} fayli — telefon/kompyuterga o'rnatilsa nazoratni olishi mumkin")
     if re.search(r"\.(jpg|jpeg|png|mp4|pdf|docx?|gif|mov)\.[a-z0-9]{2,5}$", name, re.I) and ext in DANGEROUS_EXTS:
-        f.add(30, "ikki kengaytmali nom (rasm/hujjat qilib ko'rsatilgan dastur)")
+        f.add(30, "ikki kengaytmali nom (rasm/hujjat qilib ko'rsatilgan dastur)", strong=True)
     if ext in DANGEROUS_EXTS and LURE_NAMES.search(name):
         f.add(15, "aldovchi nom («rasm», «video», «posilka» va h.k.)")
     if "‮" in name:
-        f.add(50, "fayl nomida kengaytmani yashiruvchi maxsus belgi (RTLO)")
+        f.add(50, "fayl nomida kengaytmani yashiruvchi maxsus belgi (RTLO)", strong=True)
 
 
 def is_risky_file(name: str, mime: str | None) -> bool:
@@ -94,7 +94,7 @@ def analyze_apk_bytes(data: bytes, f: Finding):
             perm_pts += w
             perm_why.append(why)
     if perm_pts:
-        f.add(min(perm_pts, 60), "xavfli ruxsatlar: " + "; ".join(perm_why[:4]))
+        f.add(min(perm_pts, 60), "xavfli ruxsatlar: " + "; ".join(perm_why[:4]), strong=perm_pts >= 45)
     dex_pts = 0
     for n in names:
         if not re.match(r"classes\d*\.dex$", n):
@@ -104,7 +104,7 @@ def analyze_apk_bytes(data: bytes, f: Finding):
         except Exception:  # noqa: BLE001
             continue
         if _BOT_TOKEN_RE.search(dex):
-            f.add(50, "ilova ichiga Telegram bot tokeni yashirilgan (ma'lumot o'g'irlovchi)")
+            f.add(50, "ilova ichiga Telegram bot tokeni yashirilgan (ma'lumot o'g'irlovchi)", strong=True)
         for marker, w, why in DEX_MARKERS:
             if marker in dex and why not in f.reasons:
                 f.add(w, why)
@@ -167,7 +167,7 @@ async def analyze_file(session, name: str, data: bytes | None, size: int | None)
     if ext in (".apk", ".apks", ".xapk", ".apkm") or (inner is None and looks_apk):
         apk_bytes = data
         if looks_apk and ext not in DANGEROUS_EXTS:
-            f.add(60, "fayl aslida Android ilova (APK), lekin boshqa kengaytma bilan niqoblangan")
+            f.add(60, "fayl aslida Android ilova (APK), lekin boshqa kengaytma bilan niqoblangan", strong=True)
     else:
         apk_bytes = inner
     if apk_bytes:

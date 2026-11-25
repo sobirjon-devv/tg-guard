@@ -14,7 +14,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings(
   chat_id INTEGER PRIMARY KEY,
   apk_strict INTEGER DEFAULT 1,       -- 1: adminlardan boshqa hamma APK o'chiriladi
-  delete_suspicious INTEGER DEFAULT 1,-- shubhali havolalar ham o'chiriladi
+  delete_suspicious INTEGER DEFAULT 0,-- shubhali havolalar ham o'chiriladi (standart: yo'q)
   mute_sender INTEGER DEFAULT 0,      -- xavfli havola yuborganni 1 soatga cheklash
   warn_ttl INTEGER DEFAULT 0          -- ogohlantirishni N daqiqadan keyin o'chirish (0 = qoldirish)
 );
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
 @dataclass
 class ChatSettings:
     apk_strict: bool = True
-    delete_suspicious: bool = True
+    delete_suspicious: bool = False
     mute_sender: bool = False
     warn_ttl: int = 0
 
@@ -69,7 +69,8 @@ async def get_settings(chat_id: int) -> ChatSettings:
 
 async def set_setting(chat_id: int, key: str, value: int):
     assert key in {"apk_strict", "delete_suspicious", "mute_sender", "warn_ttl"}
-    await _db.execute("INSERT OR IGNORE INTO settings(chat_id) VALUES(?)", (chat_id,))
+    await _db.execute("INSERT OR IGNORE INTO settings(chat_id, apk_strict, delete_suspicious, mute_sender, warn_ttl) "
+                      "VALUES(?,1,0,0,0)", (chat_id,))
     await _db.execute(f"UPDATE settings SET {key}=? WHERE chat_id=?", (value, chat_id))
     await _db.commit()
 
@@ -202,3 +203,14 @@ async def delete_user_data(user_id: int) -> int:
         n += max(cur.rowcount, 0)
     await _db.commit()
     return n
+
+
+async def load_trusted() -> set[str]:
+    import json
+    raw = await meta_get("trusted")
+    return set(json.loads(raw)) if raw else set()
+
+
+async def save_trusted(items: set[str]):
+    import json
+    await meta_set("trusted", json.dumps(sorted(items)))

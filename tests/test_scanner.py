@@ -131,3 +131,36 @@ def test_clean_apk_is_suspicious_not_hard():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])
+
+
+LEGIT_SPA = """<html><head><title>Smart QR Feedback</title>
+<script type="module" src="/assets/index-abc.js"></script></head><body><div id="root">
+<h1>Smart QR Feedback</h1><p>Har bir fikr muhim. Mijozlar fikrini QR orqali yig'ing.</p>
+<form><input type="tel" name="phone" placeholder="Telefon raqamingiz"><textarea name="text"></textarea></form>
+<p>Bildirishnomalar Telegram orqali keladi.</p></div>
+<script>import {createClient} from 'supabase'; supabase.auth.signInWithPassword({}); import './telegram.js';
+fetch('https://api.telegram.org/bot123/sendMessage')</script></body></html>"""
+
+
+def test_legit_vercel_app_is_safe():
+    """Foydalanuvchining halol sayti (vercel.app, Supabase login, Telegram bildirishnoma) xavfli bo'lmasligi kerak."""
+    u = "https://smart-qr-feedback.vercel.app/"
+    PAGES[u] = LEGIT_SPA
+    v = scan(msg(text="smart-qr-feedback.vercel.app"))
+    assert v.level == "safe", [(f.score, f.reasons) for f in v.findings]
+
+
+def test_real_tg_phishing_on_vercel_still_caught():
+    u = "https://tg-premium-gift.vercel.app/"
+    PAGES[u] = ("<title>Telegram Premium</title>Telegram Premium bepul! <input type=tel> Kodni kiriting"
+                "<script>const {StringSession}=gramjs; client.invoke(new Api.auth.sendCode({api_hash: H}))</script>")
+    v = scan(msg(text="Premium bepul oling: https://tg-premium-gift.vercel.app/"))
+    assert v.level == "malicious", [(f.score, f.reasons) for f in v.findings]
+
+
+def test_content_only_never_malicious():
+    """Faqat taxminiy belgilar (kuchli dalilsiz) — ko'pi bilan «shubhali»."""
+    u = "https://my-shop-demo.netlify.app/checkout"
+    PAGES[u] = "<title>Do'kon</title><input name=card placeholder='8600 0000 0000 0000'><input name=cvv> bonus promo"
+    v = scan(msg(text=u))
+    assert v.level != "malicious", [(f.score, f.reasons) for f in v.findings]

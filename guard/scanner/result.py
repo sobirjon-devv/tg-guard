@@ -30,7 +30,11 @@ class Finding:
 
     weights: dict = field(default_factory=dict)  # sabab -> ball (eng muhimini birinchi ko'rsatish uchun)
 
-    def add(self, pts: int, why: str):
+    strong: bool = False   # kuchli dalil bor (brend taqlidi, yangi domen, Telegram infratuzilmasi, zararli fayl...)
+
+    def add(self, pts: int, why: str, strong: bool = False):
+        if strong:
+            self.strong = True
         if why not in self.reasons:
             self.reasons.append(why)
             self.weights[why] = pts
@@ -48,6 +52,9 @@ class Finding:
         return sorted(self.reasons, key=lambda r: -self.weights.get(r, 5))[:n]
 
     def level(self, mal: int, sus: int) -> str:
+        # Kuchli dalilsiz (faqat taxminiy belgilar bilan) hech bir sayt «xavfli» deb topilmaydi
+        if not self.hard and not self.strong and self.score >= mal:
+            return SUSPICIOUS
         if self.hard or self.score >= mal:
             return MALICIOUS
         if self.score >= sus:

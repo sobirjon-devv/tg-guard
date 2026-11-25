@@ -35,7 +35,7 @@ def menu() -> InlineKeyboardMarkup:
         [b(text="👥 Guruh va kanallar", callback_data="adm:chats"), b(text="⚙️ Tizim holati", callback_data="adm:sys")],
         [b(text="📣 Foydalanuvchilarga xabar", callback_data="adm:bc:users"),
          b(text="📣 Guruhlarga xabar", callback_data="adm:bc:groups")],
-        [b(text="🔄 Yangilash", callback_data="adm:stats")],
+        [b(text="✅ Ishonchli saytlar", callback_data="adm:trusted"), b(text="🔄 Yangilash", callback_data="adm:stats")],
     ])
 
 
@@ -164,3 +164,56 @@ async def do_broadcast(m: Message, bot: Bot):
             except Exception:  # noqa: BLE001
                 pass
     await status.edit_text(f"✅ Yuborildi: {ok}\n❌ Yetkazilmadi: {fail}", reply_markup=back())
+
+
+def _clean_host(raw: str) -> str:
+    from ..scanner.extract import normalize
+    from urllib.parse import urlsplit
+    n = normalize(raw.strip())
+    return (urlsplit(n).hostname or "") if n else ""
+
+
+def _trusted_text() -> str:
+    items = sorted(url_mod.EXTRA_TRUSTED)
+    body = "\n".join(f"• <code>{_e(x)}</code>" for x in items) or "Hozircha bo'sh."
+    return ("✅ <b>Ishonchli saytlar</b>\nBu saytlar (va ularning subdomenlari) xavfli deb topilmaydi.\n\n" + body +
+            "\n\nQo'shish: <code>/trust sayt.uz</code>\nO'chirish: <code>/untrust sayt.uz</code>")
+
+
+@router.callback_query(F.data == "adm:trusted")
+async def cb_trusted(c: CallbackQuery):
+    await c.message.edit_text(_trusted_text(), reply_markup=back())
+    await c.answer()
+
+
+@router.message(Command("trust"))
+async def cmd_trust(m: Message):
+    from ..scanner.data import FREE_HOSTING, SHORTENERS
+    from ..scanner.extract import split_host
+    arg = (m.text or "").split(maxsplit=1)
+    host = _clean_host(arg[1]) if len(arg) > 1 else ""
+    if not host:
+        return await m.answer("Foydalanish: <code>/trust smart-qr-feedback.vercel.app</code>")
+    ext = split_host(host)
+    # Umumiy hostinglarni butunlay ishonchli qilib bo'lmaydi (u yerda firibgarlar ham sayt ochadi)
+    if host in FREE_HOSTING or host in SHORTENERS or not ext.domain or host == ext.suffix:
+        return await m.answer("⚠️ Bu umumiy hosting/qisqartiruvchi domen — uni to'liq ishonchli qilib bo'lmaydi. "
+                              "Aniq saytingiz manzilini kiriting, masalan <code>mening-saytim.vercel.app</code>.")
+    url_mod.EXTRA_TRUSTED.add(host)
+    await db.save_trusted(url_mod.EXTRA_TRUSTED)
+    for k in [k for k in url_mod._cache if host in k]:
+        url_mod._cache.pop(k, None)
+    await m.answer(f"✅ <code>{_e(host)}</code> ishonchli saytlar ro'yxatiga qo'shildi.\n\n" + _trusted_text())
+
+
+@router.message(Command("untrust"))
+async def cmd_untrust(m: Message):
+    arg = (m.text or "").split(maxsplit=1)
+    host = _clean_host(arg[1]) if len(arg) > 1 else ""
+    if host in url_mod.EXTRA_TRUSTED:
+        url_mod.EXTRA_TRUSTED.discard(host)
+        await db.save_trusted(url_mod.EXTRA_TRUSTED)
+        url_mod._cache.clear()
+        await m.answer(f"🗑 <code>{_e(host)}</code> ro'yxatdan olib tashlandi.")
+    else:
+        await m.answer("Bu sayt ro'yxatda yo'q.\n\n" + _trusted_text())

@@ -46,6 +46,8 @@ async def main():
     if not config.bot_token:
         sys.exit("BOT_TOKEN o'rnatilmagan")
     await db.init()
+    from .scanner import url as url_mod
+    url_mod.EXTRA_TRUSTED |= await db.load_trusted()
     bot = Bot(config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML,
                                                              link_preview_is_disabled=True))
     dp = Dispatcher()

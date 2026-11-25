@@ -23,8 +23,26 @@ log = logging.getLogger(__name__)
 MOBILE_UA = ("Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) "
              "Chrome/131.0.0.0 Mobile Safari/537.36")
 # Fishing to'plamlari haqiqiy Telegram serverlariga proksi qiladi (kodni o'g'irlab, akkauntga kiradi)
-TG_API_MARKERS = ("web.telegram.org/apiws", "web.telegram.org/apiw", ".web.telegram.org", "149.154.167.",
-                  "149.154.175.", "91.108.56.", "/api/sendcode", "/api/auth", "sendcode", "signin")
+TG_API_MARKERS = ("web.telegram.org/apiw", "web.telegram.org/apiws")
+# Telegram MTProto server tarmoqlari (rasmiy ro'yxat). Bot API (api.telegram.org) bu yerga KIRMAYDI —
+# uni halol saytlar ham xabar yuborish uchun ishlatadi.
+import ipaddress as _ip
+TG_NETS = [_ip.ip_network(n) for n in ("149.154.160.0/20", "91.108.4.0/22", "91.108.8.0/22", "91.108.12.0/22",
+                                         "91.108.16.0/22", "91.108.56.0/22", "95.161.64.0/20", "185.76.151.0/24")]
+
+
+def is_tg_infra(url: str) -> bool:
+    low = url.lower()
+    host = (urlsplit(low).hostname or "")
+    if host.endswith(".web.telegram.org") and host.split(".")[0] in (
+            "venus", "pluto", "aurora", "vesta", "flora", "kws1", "kws2", "kws3", "kws4", "kws5", "zws1", "zws2",
+            "zws3", "zws4", "zws5") or any(mk in low for mk in TG_API_MARKERS):
+        return True
+    try:
+        a = _ip.ip_address(host)
+        return any(a in n for n in TG_NETS)
+    except ValueError:
+        return False
 
 DOM_PROBE = """() => {
   const q = s => Array.from(document.querySelectorAll(s));
@@ -115,8 +133,7 @@ class Sandbox:
                     if p.scheme not in ("http", "https", "ws", "wss"):
                         return await route.abort()
                     host = p.hostname or ""
-                    low = req_url.lower()
-                    if any(mk in low for mk in TG_API_MARKERS):
+                    if is_tg_infra(req_url):
                         rep.tg_api_calls.append(req_url[:150])
                     if host not in public_cache:
                         public_cache[host] = await _host_is_public(host)
@@ -126,9 +143,9 @@ class Sandbox:
                     await route.continue_()
 
                 await ctx.route("**/*", guard)
-                ctx.on("websocket", lambda ws: rep.tg_api_calls.append(ws.url[:150])
-                       if any(mk in ws.url.lower() for mk in TG_API_MARKERS) else None)
+                page_ws = lambda ws: rep.tg_api_calls.append(ws.url[:150]) if is_tg_infra(ws.url) else None  # noqa: E731
                 page = await ctx.new_page()
+                page.on("websocket", page_ws)
                 page.on("dialog", lambda d: asyncio.create_task(d.dismiss()))
 
                 def on_nav(frame):
