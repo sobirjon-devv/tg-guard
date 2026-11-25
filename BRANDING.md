@@ -20,7 +20,7 @@ TG Guard 🛡 Anti-Fishing
 🔬 Havolalar bot serverida, yopiq brauzerda ochiladi — sizning akkauntingiz ishtirok etmaydi.
 
 ## Guruh bio'si uchun (adminlar qo'yadi)
-🛡 Bu guruh @BOT_USERNAME himoyasida: xavfli havola va APK'lar avtomatik o'chiriladi.
+🛡 Bu guruh @endixavfsiz_bot himoyasida: xavfli havola va APK'lar avtomatik o'chiriladi.
 
 ## Kanal uchun reklama posti
 🛡 Telegram akkauntingizni o'g'irlatib qo'ymang!
@@ -32,7 +32,7 @@ TG Guard bot:
 ✅ xavfli linkni bir zumda o'chirib, hammani ogohlantiradi
 ✅ shaxsiy chatlaringizni ham himoya qiladi
 
-👉 @BOT_USERNAME — guruhga qo'shing va admin qiling.
+👉 @endixavfsiz_bot — guruhga qo'shing va admin qiling.
 
 ## BotFather buyruqlari (bot o'zi o'rnatadi)
 start - Bot haqida
