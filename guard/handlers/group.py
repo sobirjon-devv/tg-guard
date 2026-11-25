@@ -15,7 +15,7 @@ from aiogram.types import (CallbackQuery, ChatMemberUpdated, ChatPermissions, In
 from .. import db
 from ..branding import asset
 from ..actions import (best_screenshot, delete_later, details_button, group_warning, log_to_channel, mention,
-                       recent_context, report_text, warning_text)
+                       recent_context, admin_report, warning_text)
 from ..scanner import apk as apk_mod
 from ..scanner.engine import scan_message
 from ..scanner.result import MALICIOUS, SUSPICIOUS
@@ -86,7 +86,7 @@ async def process(bot: Bot, m: Message, *, channel: bool = False):
 
     w = v.worst
     event_id = await db.log_event(m.chat.id, m.from_user.id if m.from_user else None, w.target if w else "",
-                                  v.level, w.score if w else 0, w.reasons if w else [], report_text(v)) if w else None
+                                  v.level, w.score if w else 0, w.reasons if w else [], admin_report(v)) if w else None
     kb = await details_button(bot, event_id)
     try:
         sent = await bot.send_message(m.chat.id, group_warning(v, who, pending=v.fast) + suffix, reply_markup=kb,
@@ -101,7 +101,7 @@ async def process(bot: Bot, m: Message, *, channel: bool = False):
         # Xabar allaqachon o'chirildi; endi sandbox orqali aniq ma'lumot yig'ib, ogohlantirishni yangilaymiz
         v = await scan_message(bot, m, extra_context=extra, allow_fast=False)
         if event_id:
-            await db.update_event_report(event_id, report_text(v))
+            await db.update_event_report(event_id, admin_report(v))
         if sent:
             try:
                 await sent.edit_text(group_warning(v, who) + suffix, reply_markup=kb)

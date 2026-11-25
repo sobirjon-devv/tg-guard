@@ -174,24 +174,68 @@ async def details_button(bot, event_id: int | None):
         text="🔍 Batafsil hisobot", url=f"https://t.me/{_me_username}?start=r_{event_id}")]])
 
 
+ADVICE = {
+    "tg_steal": "Bu saytga telefon raqam yoki Telegram kodini kiritmang. Kiritgan bo'lsangiz: Sozlamalar → "
+                "Qurilmalar → «Boshqa seanslarni yakunlash», keyin 2 bosqichli parolni yoqing.",
+    "card": "Karta ma'lumotlarini kiritmang. Kiritgan bo'lsangiz, bankka qo'ng'iroq qilib kartani bloklang.",
+    "apk": "Faylni o'rnatmang. O'rnatgan bo'lsangiz: internetni o'chiring, ilovani o'chiring va bankingizga xabar bering.",
+}
+
+
 def report_text(v: Verdict) -> str:
+    """Foydalanuvchi uchun sodda hisobot: nima, nega xavfli, nima qilish kerak. Texnik tafsilotlarsiz."""
     if not v.findings:
         return "Xabarda havola yoki fayl topilmadi."
-    icon = {"safe": "✅ <b>Xavfli belgi topilmadi</b>", "suspicious": "⚠️ <b>SHUBHALI</b>",
+    mal, sus = config.malicious_threshold, config.suspicious_threshold
+    head = {"safe": "✅ <b>Xavfli belgi topilmadi</b>", "suspicious": "⚠️ <b>Ehtiyot bo'ling — shubhali</b>",
             "malicious": "⛔️ <b>XAVFLI — ochmang!</b>"}[v.level]
-    out = [icon, ""]
+    out = [head]
+    tags: set = set()
+    for f in v.findings[:5]:
+        lvl = f.level(mal, sus)
+        d = f.details
+        out.append("")
+        out.append(f"{'📦' if f.kind == 'file' else '🔗'} <code>{_e(defang(f.target))}</code>")
+        if d.get("official"):
+            out.append("🏛 Rasmiy sayt")
+        if f.final_url:
+            out.append(f"↪️ Aslida boshqa saytga olib boradi: <code>{_e(defang(f.final_url))}</code>")
+        if lvl == "safe":
+            if d.get("title"):
+                out.append(f"📄 «{_e(d['title'][:70])}»")
+            continue
+        tags |= f.tags
+        th = threat_name(f)
+        if th:
+            out.append(f"🏷 <b>{_e(th[:1].upper() + th[1:])}</b>")
+        if d.get("asks"):
+            out.append(f"🎯 Sizdan so'raydi: {_e(', '.join(d['asks']))}")
+        if d.get("downloads"):
+            out.append(f"📥 Telefoningizga yuklatadi: {_e(', '.join(d['downloads'][:2]))}")
+        reasons = [r for r in f.top_reasons(4) if f.weights.get(r, 5) >= 10][:3]
+        if reasons:
+            out.append("📌 Nega:")
+            out += [f"• {_e(r)}" for r in reasons]
+    out.append("")
+    if v.level == "safe":
+        out.append("Shunday bo'lsa ham, kod va parolni hech kimga bermang.")
+    else:
+        tips = [ADVICE[t] for t in ("tg_steal", "card", "apk") if t in tags]
+        out.append("💡 " + (tips[0] if tips else "Havolani ochmang va hech qanday ma'lumot kiritmang."))
+    return "\n".join(out)[:4000]
+
+
+def admin_report(v: Verdict) -> str:
+    """Admin uchun to'liq texnik hisobot (server, bazalar, ball)."""
+    out = [report_text(v), "", "— texnik ma'lumot —"]
     for f in v.findings[:5]:
         out += [finding_block(f, full=True), ""]
-    opened = any(f.checks.get("sandbox") == "ochildi" for f in v.findings)
-    out.append(f"⏱ {v.elapsed:.1f} s · 🛡 " + ("Havola bot serverida, bir martalik yopiq brauzerda ochildi — "
-                                               "sizning akkauntingiz va telefoningiz ishtirok etmadi."
-                                               if opened else "Tekshiruv bot serverida bajarildi."))
-    if v.level == "safe":
-        out.append("<i>Hech bir tekshiruv 100% kafolat bermaydi. Kod va parolni hech kimga bermang.</i>")
     return "\n".join(out)[:4000]
 
 
 def best_screenshot(v: Verdict):
+    if v.level == "safe":
+        return None
     for f in sorted(v.findings, key=lambda x: (x.hard, x.score), reverse=True):
         if f.screenshot:
             return f.screenshot
@@ -221,7 +265,7 @@ async def send_report(bot, chat_id: int, text: str, shot: bytes | None = None, *
     if shot:
         try:
             await bot.send_photo(chat_id, BufferedInputFile(shot, "sahifa.jpg"),
-                                 caption="📸 Sahifa sandbox brauzerda shunday ko'rinadi (siz ochmasangiz ham bo'ladi)",
+                                 caption="📸 Sahifa ko'rinishi",
                                  has_spoiler=True, **kw)
         except Exception as e:  # noqa: BLE001
             log.debug("photo: %s", e)

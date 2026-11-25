@@ -54,8 +54,10 @@ async def start(m: Message, bot: Bot, command: CommandObject):
     arg = command.args or ""
     if arg.startswith("r_") and arg[2:].isdigit():  # guruhdagi «Batafsil hisobot» tugmasi
         row = await db.get_event(int(arg[2:]))
-        return await m.answer(row[6] if row and row[6] else "Hisobot topilmadi yoki eskirgan.",
-                              disable_web_page_preview=True)
+        text = row[6] if row and row[6] else "Hisobot topilmadi yoki eskirgan."
+        if m.from_user.id not in config.owner_ids:   # texnik qism faqat admin uchun
+            text = text.split("\n\n— texnik ma'lumot —")[0]
+        return await m.answer(text, disable_web_page_preview=True)
     me = await bot.me()
     banner = asset("banner_start.jpg")
     if banner:

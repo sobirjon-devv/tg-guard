@@ -12,7 +12,7 @@ from aiogram import Bot, Router
 from aiogram.types import BusinessConnection, Message
 
 from .. import db
-from ..actions import (best_screenshot, delete_later, group_warning, mention, recent_context, report_text,
+from ..actions import (best_screenshot, delete_later, group_warning, mention, recent_context, report_text, admin_report,
                        send_report)
 from ..scanner import apk as apk_mod
 from ..scanner.engine import scan_message
@@ -131,4 +131,4 @@ async def on_business_message(m: Message, bot: Bot):
     w = v.worst
     if w:
         await db.log_event(owner_id, m.from_user.id if m.from_user else None, w.target, v.level, w.score, w.reasons,
-                           report_text(v))
+                           admin_report(v))
